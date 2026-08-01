@@ -111,7 +111,7 @@ func (h *Handlers) createContainer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
-// ContainerByID handles DELETE /containers/:id and POST /containers/:id/start.
+// ContainerByID handles DELETE /containers/:id, POST /containers/:id/start, and POST /containers/:id/stop.
 func (h *Handlers) ContainerByID(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/containers/")
 	parts := strings.Split(path, "/")
@@ -129,6 +129,11 @@ func (h *Handlers) ContainerByID(w http.ResponseWriter, r *http.Request) {
 
 	if len(parts) == 2 && parts[1] == "start" && r.Method == http.MethodPost {
 		h.startContainer(w, r, id)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "stop" && r.Method == http.MethodPost {
+		h.stopContainer(w, r, id)
 		return
 	}
 
@@ -159,6 +164,21 @@ func (h *Handlers) startContainer(w http.ResponseWriter, r *http.Request, id str
 	writeJSON(w, http.StatusOK, map[string]string{
 		"id":     id,
 		"status": "running",
+	})
+}
+
+func (h *Handlers) stopContainer(w http.ResponseWriter, r *http.Request, id string) {
+	ctx, cancel := context.WithTimeout(r.Context(), RequestTimeout)
+	defer cancel()
+
+	if err := h.docker.StopContainer(ctx, id); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"id":     id,
+		"status": "exited",
 	})
 }
 

@@ -120,6 +120,15 @@ func (c *Client) StartContainer(ctx context.Context, id string) error {
 	return nil
 }
 
+// StopContainer stops a running container without removing it.
+func (c *Client) StopContainer(ctx context.Context, id string) error {
+	timeout := 10
+	if _, err := c.cli.ContainerStop(ctx, id, client.ContainerStopOptions{Timeout: &timeout}); err != nil {
+		return fmt.Errorf("stop container: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) pullImage(ctx context.Context, imageName string) error {
 	pullResp, err := c.cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
 	if err != nil {
@@ -135,7 +144,8 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
-// Does not allow for horizontinal scaling, however I geuss its good for prototyping
+// Does not allow for horizontinal scaling, however I guess its good for prototyping
+// No bridge networks or anything, just maps one container port to host port
 func buildPortMappings(ports []int) (network.PortSet, network.PortMap, error) {
 	exposedPorts := network.PortSet{}
 	portBindings := network.PortMap{}
