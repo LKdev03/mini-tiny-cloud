@@ -8,25 +8,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LKdev03/mini-tiny-cloud/internal/db"
 	"github.com/LKdev03/mini-tiny-cloud/internal/docker"
 )
 
 // RequestTimeout bounds Docker operations (image pull + create can be slow).
 const RequestTimeout = 2 * time.Minute
 
-//HUOM! Original requests (the handlers themselves like Health) dont have their own timeouts. Only their childcontexts do.
+// DBRequestTimeout bounds database operations.
+const DBRequestTimeout = 10 * time.Second
 
 // Handlers exposes HTTP handlers for the control plane API.
 type Handlers struct {
 	docker *docker.Client
+	store  *db.Store
 }
 
-// NewHandlers builds handlers wired to the Docker client.
-func NewHandlers(dockerClient *docker.Client) *Handlers {
-	return &Handlers{docker: dockerClient}
+// NewHandlers builds handlers wired to Docker and the state store.
+func NewHandlers(dockerClient *docker.Client, store *db.Store) *Handlers {
+	return &Handlers{
+		docker: dockerClient,
+		store:  store,
+	}
 }
 
-// Health reports API and Docker connectivity.
+// Health reports API, Docker, and database connectivity.
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w)
@@ -41,14 +47,20 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 		dockerStatus = "unreachable"
 	}
 
+	dbStatus := "ok"
+	if err := h.store.Ping(ctx); err != nil {
+		dbStatus = "unreachable"
+	}
+
 	apiStatus := "ok"
-	if dockerStatus != "ok" {
+	if dockerStatus != "ok" || dbStatus != "ok" {
 		apiStatus = "degraded"
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status": apiStatus,
-		"docker": dockerStatus,
+		"status":   apiStatus,
+		"docker":   dockerStatus,
+		"database": dbStatus,
 	})
 }
 
@@ -182,22 +194,10 @@ func (h *Handlers) stopContainer(w http.ResponseWriter, r *http.Request, id stri
 	})
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+func writeStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, db.ErrNotFound) {
+		writeError(w, http.StatusNotFound, err)
+		return
 	}
-}
-
-func writeError(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, map[string]string{
-		"error": err.Error(),
-	})
-}
-
-func methodNotAllowed(w http.ResponseWriter) {
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
-		"error": "method not allowed",
-	})
+	writeError(w, http.StatusInternalServerError, err)
 }
