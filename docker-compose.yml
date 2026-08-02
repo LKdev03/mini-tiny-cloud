@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: minicloud-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-minicloud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-minicloud}
+      POSTGRES_DB: ${POSTGRES_DB:-minicloud}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Persist database files on the host disk (survives container restarts/removal).
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-minicloud} -d ${POSTGRES_DB:-minicloud}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
