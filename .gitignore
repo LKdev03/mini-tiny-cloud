@@ -45,6 +45,7 @@ Desktop.ini
 *.sublime-workspace
 *.sublime-project
 *.code-workspace
+.vscode/
 
 # VS Code — ignore local state; un-ignore shared team config if you add it later
 .vscode/*
