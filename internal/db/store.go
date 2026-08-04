@@ -207,7 +207,7 @@ func (s *Store) UpdateServiceDesiredState(ctx context.Context, id string, image 
 
 	const query = `
 		UPDATE services
-		SET image = $2, replicas = $3, updated_at = now()
+		SET image = $2, replicas = $3, status = 'pending', updated_at = now()
 		WHERE id = $1
 		RETURNING id, project_id, image, replicas, status, created_at, updated_at`
 
@@ -225,6 +225,21 @@ func (s *Store) UpdateServiceDesiredState(ctx context.Context, id string, image 
 	}
 
 	return service, nil
+}
+
+// UpdateServiceStatus sets the observed status for a service (updated by the reconciler).
+func (s *Store) UpdateServiceStatus(ctx context.Context, id, status string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE services
+		SET status = $2, updated_at = now()
+		WHERE id = $1`, id, status)
+	if err != nil {
+		return fmt.Errorf("update service status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteService removes desired state for a workload.

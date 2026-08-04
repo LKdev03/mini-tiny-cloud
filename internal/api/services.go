@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/LKdev03/mini-tiny-cloud/internal/reconciler"
 )
 
 // Services handles GET /services and POST /services.
@@ -153,8 +155,18 @@ func (h *Handlers) updateService(w http.ResponseWriter, r *http.Request, id stri
 }
 
 func (h *Handlers) deleteService(w http.ResponseWriter, r *http.Request, id string) {
-	ctx, cancel := context.WithTimeout(r.Context(), DBRequestTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), RequestTimeout)
 	defer cancel()
+
+	if _, err := h.store.GetService(ctx, id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	if err := reconciler.DeleteServiceContainers(ctx, h.docker, h.store, id); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 
 	if err := h.store.DeleteService(ctx, id); err != nil {
 		writeStoreError(w, err)

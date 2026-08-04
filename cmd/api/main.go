@@ -5,15 +5,19 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/LKdev03/mini-tiny-cloud/internal/api"
 	"github.com/LKdev03/mini-tiny-cloud/internal/db"
 	"github.com/LKdev03/mini-tiny-cloud/internal/docker"
+	"github.com/LKdev03/mini-tiny-cloud/internal/reconciler"
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	store, err := db.Connect(ctx)
 	if err != nil {
@@ -28,6 +32,9 @@ func main() {
 	defer dockerClient.Close()
 
 	handlers := api.NewHandlers(dockerClient, store)
+
+	rec := reconciler.New(store, dockerClient, reconciler.Config{})
+	go rec.Run(ctx)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handlers.Health)
@@ -53,7 +60,17 @@ func main() {
 	}
 
 	log.Printf("mini-tiny-cloud API listening on %s", addr)
-	if err := server.ListenAndServe(); err != nil {
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("server shutdown: %v", err)
+		}
+	}()
+
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server: %v", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
@@ -25,9 +26,17 @@ type Container struct {
 
 // CreateOptions describes a container to create.
 type CreateOptions struct {
-	Name  string
-	Image string
-	Ports []int
+	Name   string
+	Image  string
+	Ports  []int
+	Labels map[string]string
+}
+
+// ContainerRuntime is the live state of a container in Docker.
+type ContainerRuntime struct {
+	Exists  bool
+	Running bool
+	Labels  map[string]string
 }
 
 // New connects to the local Docker daemon using environment defaults
@@ -82,6 +91,7 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateOptions) (Conta
 		Image: opts.Image,
 		Config: &container.Config{
 			ExposedPorts: exposedPorts,
+			Labels:       opts.Labels,
 		},
 		HostConfig: &container.HostConfig{
 			PortBindings: portBindings,
@@ -136,6 +146,28 @@ func (c *Client) pullImage(ctx context.Context, imageName string) error {
 	}
 	defer pullResp.Close()
 	return pullResp.Wait(ctx)
+}
+
+// GetContainerRuntime returns whether a container exists, is running, and its labels.
+func (c *Client) GetContainerRuntime(ctx context.Context, id string) (ContainerRuntime, error) {
+	info, err := c.cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil {
+		if cerrdefs.IsNotFound(err) {
+			return ContainerRuntime{Exists: false}, nil
+		}
+		return ContainerRuntime{}, fmt.Errorf("inspect container: %w", err)
+	}
+
+	labels := map[string]string{}
+	if info.Container.Config != nil && info.Container.Config.Labels != nil {
+		labels = info.Container.Config.Labels
+	}
+
+	return ContainerRuntime{
+		Exists:  true,
+		Running: info.Container.State != nil && info.Container.State.Running,
+		Labels:  labels,
+	}, nil
 }
 
 // Ping verifies the Docker daemon is reachable.
