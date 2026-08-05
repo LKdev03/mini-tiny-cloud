@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS services (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
     image TEXT NOT NULL,
     replicas INT NOT NULL DEFAULT 1 CHECK (replicas >= 0),
     status TEXT NOT NULL DEFAULT 'pending',
@@ -15,6 +16,7 @@ CREATE TABLE IF NOT EXISTS services (
 );
 
 CREATE INDEX IF NOT EXISTS idx_services_project_id ON services(project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_services_project_id_name ON services(project_id, name);
 
 CREATE TABLE IF NOT EXISTS instances (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
