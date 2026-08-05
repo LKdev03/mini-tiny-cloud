@@ -5,10 +5,30 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/LKdev03/mini-tiny-cloud/internal/reconciler"
 )
+
+const maxServiceNameLen = 63
+
+// DNS label rules (Kubernetes-style): lowercase alphanumeric with internal hyphens.
+var serviceNamePattern = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
+
+func validateServiceName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("name is required")
+	}
+	if len(name) > maxServiceNameLen {
+		return errors.New("name must be at most 63 characters")
+	}
+	if !serviceNamePattern.MatchString(name) {
+		return errors.New("name must be lowercase alphanumeric with hyphens, start with a letter, and not end with a hyphen")
+	}
+	return nil
+}
 
 // Services handles GET /services and POST /services.
 func (h *Handlers) Services(w http.ResponseWriter, r *http.Request) {
@@ -37,6 +57,7 @@ func (h *Handlers) listServices(w http.ResponseWriter, r *http.Request) {
 
 type createServiceRequest struct {
 	ProjectID string `json:"project_id"`
+	Name      string `json:"name"`
 	Image     string `json:"image"`
 	Replicas  int    `json:"replicas"`
 }
@@ -49,6 +70,10 @@ func (h *Handlers) createService(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ProjectID == "" || req.Image == "" {
 		writeError(w, http.StatusBadRequest, errors.New("project_id and image are required"))
+		return
+	}
+	if err := validateServiceName(req.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	if req.Replicas < 0 {
@@ -67,7 +92,7 @@ func (h *Handlers) createService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service, err := h.store.CreateService(ctx, req.ProjectID, req.Image, req.Replicas)
+	service, err := h.store.CreateService(ctx, req.ProjectID, req.Name, req.Image, req.Replicas)
 	if err != nil {
 		writeStoreError(w, err)
 		return

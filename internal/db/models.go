@@ -13,6 +13,7 @@ type Project struct {
 type Service struct {
 	ID        string    `json:"id"`
 	ProjectID string    `json:"project_id"`
+	Name      string    `json:"name"`
 	Image     string    `json:"image"`
 	Replicas  int       `json:"replicas"`
 	Status    string    `json:"status"`

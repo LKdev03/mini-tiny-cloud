@@ -199,5 +199,9 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	if errors.Is(err, db.ErrConflict) {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
 	writeError(w, http.StatusInternalServerError, err)
 }

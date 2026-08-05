@@ -6,9 +6,13 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound  = errors.New("not found")
+	ErrConflict  = errors.New("conflict")
+)
 
 // CreateProject inserts a new project.
 func (s *Store) CreateProject(ctx context.Context, name string) (Project, error) {
@@ -93,22 +97,27 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 }
 
 // CreateService records desired state for a workload.
-func (s *Store) CreateService(ctx context.Context, projectID, image string, replicas int) (Service, error) {
+func (s *Store) CreateService(ctx context.Context, projectID, name, image string, replicas int) (Service, error) {
 	const query = `
-		INSERT INTO services (project_id, image, replicas, status)
-		VALUES ($1, $2, $3, 'pending')
-		RETURNING id, project_id, image, replicas, status, created_at, updated_at`
+		INSERT INTO services (project_id, name, image, replicas, status)
+		VALUES ($1, $2, $3, $4, 'pending')
+		RETURNING id, project_id, name, image, replicas, status, created_at, updated_at`
 
 	var service Service
-	if err := s.pool.QueryRow(ctx, query, projectID, image, replicas).Scan(
+	if err := s.pool.QueryRow(ctx, query, projectID, name, image, replicas).Scan(
 		&service.ID,
 		&service.ProjectID,
+		&service.Name,
 		&service.Image,
 		&service.Replicas,
 		&service.Status,
 		&service.CreatedAt,
 		&service.UpdatedAt,
 	); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return Service{}, fmt.Errorf("%w: service name already exists in project", ErrConflict)
+		}
 		return Service{}, fmt.Errorf("create service: %w", err)
 	}
 
@@ -124,14 +133,14 @@ func (s *Store) ListServices(ctx context.Context, projectID string) ([]Service, 
 
 	if projectID != "" {
 		const query = `
-			SELECT id, project_id, image, replicas, status, created_at, updated_at
+			SELECT id, project_id, name, image, replicas, status, created_at, updated_at
 			FROM services
 			WHERE project_id = $1
 			ORDER BY created_at ASC`
 		rows, err = s.pool.Query(ctx, query, projectID)
 	} else {
 		const query = `
-			SELECT id, project_id, image, replicas, status, created_at, updated_at
+			SELECT id, project_id, name, image, replicas, status, created_at, updated_at
 			FROM services
 			ORDER BY created_at ASC`
 		rows, err = s.pool.Query(ctx, query)
@@ -147,6 +156,7 @@ func (s *Store) ListServices(ctx context.Context, projectID string) ([]Service, 
 		if err := rows.Scan(
 			&service.ID,
 			&service.ProjectID,
+			&service.Name,
 			&service.Image,
 			&service.Replicas,
 			&service.Status,
@@ -167,7 +177,7 @@ func (s *Store) ListServices(ctx context.Context, projectID string) ([]Service, 
 // GetService returns a service by ID.
 func (s *Store) GetService(ctx context.Context, id string) (Service, error) {
 	const query = `
-		SELECT id, project_id, image, replicas, status, created_at, updated_at
+		SELECT id, project_id, name, image, replicas, status, created_at, updated_at
 		FROM services
 		WHERE id = $1`
 
@@ -175,6 +185,7 @@ func (s *Store) GetService(ctx context.Context, id string) (Service, error) {
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&service.ID,
 		&service.ProjectID,
+		&service.Name,
 		&service.Image,
 		&service.Replicas,
 		&service.Status,
@@ -186,6 +197,34 @@ func (s *Store) GetService(ctx context.Context, id string) (Service, error) {
 	}
 	if err != nil {
 		return Service{}, fmt.Errorf("get service: %w", err)
+	}
+
+	return service, nil
+}
+
+// GetServiceByProjectAndName returns a service by its stable name within a project.
+func (s *Store) GetServiceByProjectAndName(ctx context.Context, projectID, name string) (Service, error) {
+	const query = `
+		SELECT id, project_id, name, image, replicas, status, created_at, updated_at
+		FROM services
+		WHERE project_id = $1 AND name = $2`
+
+	var service Service
+	err := s.pool.QueryRow(ctx, query, projectID, name).Scan(
+		&service.ID,
+		&service.ProjectID,
+		&service.Name,
+		&service.Image,
+		&service.Replicas,
+		&service.Status,
+		&service.CreatedAt,
+		&service.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Service{}, ErrNotFound
+	}
+	if err != nil {
+		return Service{}, fmt.Errorf("get service by name: %w", err)
 	}
 
 	return service, nil
@@ -209,12 +248,13 @@ func (s *Store) UpdateServiceDesiredState(ctx context.Context, id string, image 
 		UPDATE services
 		SET image = $2, replicas = $3, status = 'pending', updated_at = now()
 		WHERE id = $1
-		RETURNING id, project_id, image, replicas, status, created_at, updated_at`
+		RETURNING id, project_id, name, image, replicas, status, created_at, updated_at`
 
 	var service Service
 	if err := s.pool.QueryRow(ctx, query, id, current.Image, current.Replicas).Scan(
 		&service.ID,
 		&service.ProjectID,
+		&service.Name,
 		&service.Image,
 		&service.Replicas,
 		&service.Status,
