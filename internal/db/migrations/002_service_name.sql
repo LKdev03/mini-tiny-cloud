@@ -1,4 +1,3 @@
--- Phase 5.1: stable service identity (name unique per project).
 ALTER TABLE services ADD COLUMN IF NOT EXISTS name TEXT;
 
 UPDATE services
